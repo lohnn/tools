@@ -43,7 +43,7 @@ jobs:
       working-directory: ./user_interface
       run: flutter build macos --release
     - run: mkdir temp
-    - run: mv user_interface/macos/Build/Products/Release/user_interface.app ./temp/changelog.app
+    - run: cp -r user_interface/build/macos/Build/Products/Release/user_interface.app ./temp/changelog.app
     - uses: actions/upload-artifact@v2
       with:
         name: changelog-ui-macos
