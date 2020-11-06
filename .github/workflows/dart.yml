@@ -7,7 +7,7 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  build-linux-commit-msg:
     runs-on: ubuntu-latest
 
     container:
@@ -20,8 +20,31 @@ jobs:
 #    - name: Run tests
 #      run: pub run test
     - name: Build binary
-      run: dart2native lib/git/prepare_commit_message/commit_message.dart -o commit-msg
+      run: dart2native lib/git/prepare_commit_message/commit_message.dart -o linux-commit-msg
     - uses: actions/upload-artifact@v2
       with:
-        name: my-artifact
+        name: linux-commit-msg
         path: linux-commit-msg
+
+  build-ui-macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v2
+    - uses: subosito/flutter-action@v1
+      with:
+        channel: dev
+    - name: Configure Desktop build env
+      working-directory: ./user_interface
+      run: flutter config --enable-macos-desktop
+    - name: Fetch dependencies  
+      working-directory: ./user_interface
+      run: flutter pub get
+    - name: Build runnable
+      working-directory: ./user_interface
+      run: flutter build macos --release
+    - run: mkdir temp
+    - run: mv user_interface/macos/Build/Products/Release/user_interface.app ./temp/changelog.app
+    - uses: actions/upload-artifact@v2
+      with:
+        name: changelog-ui-macos
+        path: temp
