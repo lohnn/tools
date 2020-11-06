@@ -1,0 +1,27 @@
+name: Dart CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    container:
+      image:  google/dart:latest
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install dependencies
+      run: pub get
+#    - name: Run tests
+#      run: pub run test
+    - name: Build binary
+      run: dart2native lib/git/prepare_commit_message/commit_message.dart -o commit-msg
+    - uses: actions/upload-artifact@v2
+      with:
+        name: my-artifact
+        path: linux-commit-msg
