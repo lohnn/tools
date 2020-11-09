@@ -3,61 +3,45 @@ import 'dart:io';
 import 'package:file_chooser/file_chooser.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
 import 'package:flutter_riverpod/all.dart';
+import 'package:hooks_riverpod/all.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'changelog/changelog_body.dart';
 import 'changelog/changelog_state_provider.dart';
 
-class Changelog extends StatefulWidget {
-  @override
-  _ChangelogState createState() => _ChangelogState();
-}
-
-class _ChangelogState extends State<Changelog> {
-  TextEditingController _folderPathController;
-  FocusNode _folderPathFocusNode;
-
-  @override
-  void initState() {
-    super.initState();
-    _folderPathController = TextEditingController();
-    _folderPathFocusNode = FocusNode();
-  }
-
-  @override
-  void dispose() {
-    _folderPathController.dispose();
-    _folderPathFocusNode.dispose();
-    super.dispose();
-  }
-
+class Changelog extends HookWidget {
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Git changelog'),
-      ),
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Consumer(builder: (context, watch, child) {
-              return ProviderListener<StateController<GitDirectory>>(
+    final folderPathController = useTextEditingController();
+    final folderPathFocusNode = useFocusNode();
+    return GestureDetector(
+      //Deselect text fields when clicking outside them
+      onTap: () => FocusScope.of(context).requestFocus(FocusNode()),
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text('Git changelog'),
+        ),
+        body: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ProviderListener<StateController<GitDirectory>>(
                 provider: currentRepoDirectoryProvider,
                 onChange: (context, value) {
-                  _folderPathController.value = _folderPathController.value
+                  folderPathController.value = folderPathController.value
                       .copyWith(text: value.state.directory);
-                  if (value.state.isGitRepo) _folderPathFocusNode.unfocus();
+                  if (value.state.isGitRepo) folderPathFocusNode.unfocus();
                 },
                 child: CupertinoTextField(
-                  focusNode: _folderPathFocusNode,
-                  controller: _folderPathController,
+                  focusNode: folderPathFocusNode,
+                  controller: folderPathController,
                   placeholder: 'Directory',
                   onChanged: (value) {
                     context
                         .read(changelogViewController)
-                        .onUpdateTextField(value);
+                        .onUpdateDirectoryField(value);
                   },
                   suffix: CupertinoButton(
                     onPressed: () async {
@@ -79,32 +63,56 @@ class _ChangelogState extends State<Changelog> {
                     child: Icon(CupertinoIcons.folder_open),
                   ),
                 ),
-              );
-            }),
-            PreviousRepositories(),
-            ChangelogBody(),
-            Expanded(
-              child: Consumer(
-                builder: (context, watch, child) {
-                  final changes = watch(changelog);
-                  final isGitRepo =
-                      watch(currentRepoDirectoryProvider).state.isGitRepo;
-                  if (!isGitRepo) return Container();
-                  return Row(
-                    children: [
-                      Expanded(
-                        child: TicketList(changes.left),
-                      ),
-                      Expanded(
-                        child: TicketList(changes.right),
-                      )
-                    ],
-                  );
-                },
               ),
-            ),
-          ],
+              PreviousRepositories(),
+              ChangelogBody(),
+              Expanded(
+                child: Consumer(
+                  builder: (context, watch, child) {
+                    final changes = watch(changelog);
+                    final isGitRepo =
+                        watch(currentRepoDirectoryProvider).state.isGitRepo;
+                    if (!isGitRepo) return Container();
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: TicketList(changes.left),
+                        ),
+                        Expanded(
+                          child: TicketList(changes.right),
+                        )
+                      ],
+                    );
+                  },
+                ),
+              ),
+              BaseUrl(),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+class BaseUrl extends HookWidget {
+  @override
+  Widget build(BuildContext context) {
+    final isGitRepo = useProvider(currentRepoDirectoryProvider).state.isGitRepo;
+    final controller = useTextEditingController();
+    if (!isGitRepo) return Container();
+    return ProviderListener(
+      provider: baseUrlProvider,
+      onChange: (BuildContext context, String value) {
+        controller.value = controller.value.copyWith(text: value);
+      },
+      child: CupertinoTextField(
+        placeholder:
+            'Project base url (e.g. https://myproject.jira.com/browse/)',
+        controller: controller,
+        onChanged: (value) {
+          context.read(changelogViewController).onUpdateBaseUrlField(value);
+        },
       ),
     );
   }

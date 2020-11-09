@@ -2,8 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:tools/git/changelog/changelog_fetcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:tools/git/changelog/changelog_fetcher.dart';
 
 final changelogViewController =
     Provider.autoDispose((ref) => ChangelogViewController(ref.read));
@@ -13,7 +13,7 @@ class ChangelogViewController {
 
   ChangelogViewController(this.read);
 
-  void onUpdateTextField(String dir) {
+  void onUpdateDirectoryField(String dir) {
     var isGit = Directory('$dir/.git').existsSync();
     read(currentRepoDirectoryProvider).state = GitDirectory(dir, isGit);
     if (isGit) {
@@ -22,13 +22,18 @@ class ChangelogViewController {
   }
 
   void selectDirectory(String dir) {
+    //Don't call [onUpdateDirectoryField] if the directory already is selected
     if (read(currentRepoDirectoryProvider).state.directory != dir) {
-      onUpdateTextField(dir);
+      onUpdateDirectoryField(dir);
     }
   }
 
   void removeDirectory(String dir) {
     read(_savedRepositoriesProvider).removeDirectory(dir);
+  }
+
+  void onUpdateBaseUrlField(String path) {
+    read(_savedBaseUrlProvider)?.updateBaseUrl(path);
   }
 }
 
@@ -128,16 +133,18 @@ final _trackingMasterBranch = Provider<String>((ref) {
   return 'master';
 });
 
-final changelog = Provider<Changelog>((ref) {
+final changelog = Provider.autoDispose<Changelog>((ref) {
   ref.watch(_gitFetchProvider);
   final trackingMaster = ref.watch(_trackingMasterBranch);
   final leftBranch = ref.watch(rightBranchProvider).state ?? trackingMaster;
   final rightBranch = ref.watch(leftBranchProvider).state ?? trackingMaster;
   final gitRepo = ref.watch(currentRepoDirectoryProvider).state;
+  final baseUrl = ref.watch(baseUrlProvider);
   if (!gitRepo.isGitRepo) return Changelog.empty;
   return Changelog.withData(
     _getChangelog(leftBranch, rightBranch, gitRepo.directory),
     _getChangelog(rightBranch, leftBranch, gitRepo.directory),
+    baseUrl: baseUrl,
   );
 });
 
@@ -151,11 +158,16 @@ class Changelog {
   })  : assert(left != null),
         assert(right != null);
 
-  factory Changelog.withData(List<String> left, List<String> right) {
-    final newLeft = left.map((e) => Change(e, right.contains(e))).toList()
-      ..sortChange();
-    final newRight = right.map((e) => Change(e, left.contains(e))).toList()
-      ..sortChange();
+  factory Changelog.withData(List<String> left, List<String> right,
+      {@required String baseUrl}) {
+    final newLeft = left
+        .map((e) => Change(e, right.contains(e), baseUrl: baseUrl))
+        .toList()
+          ..sortChange();
+    final newRight = right
+        .map((e) => Change(e, left.contains(e), baseUrl: baseUrl))
+        .toList()
+          ..sortChange();
     return Changelog._(
       left: newLeft,
       right: newRight,
@@ -171,11 +183,11 @@ class Changelog {
 class Change {
   final String ticketName;
   final bool existsInBoth;
+  final String baseUrl;
 
-  Change(this.ticketName, this.existsInBoth);
+  Change(this.ticketName, this.existsInBoth, {@required this.baseUrl});
 
-  //TODO: Change to support update from UI (and saving between usages)
-  String get url => 'https://myproject.jira.com/browse/$ticketName';
+  String get url => baseUrl == null ? null : '$baseUrl$ticketName';
 }
 
 final _sharedPreferencesClient = Provider((ref) => _SharedPreferencesClient());
@@ -190,15 +202,25 @@ class _SharedPreferencesClient {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setStringList(key, list);
   }
+
+  Future<String> getString(String key) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getString(key);
+  }
+
+  Future<void> saveString(String key, String value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(key, value);
+  }
 }
 
 final _savedRepositoriesProvider =
-    StateNotifierProvider<_SavedRepositories>((ref) {
+    StateNotifierProvider.autoDispose<_SavedRepositories>((ref) {
   return _SavedRepositories(ref.read);
 });
 
 class _SavedRepositories extends StateNotifier<Set<String>> {
-  Reader read;
+  final Reader read;
 
   _SavedRepositories(this.read) : super({}) {
     loadFromPrefs();
@@ -224,8 +246,40 @@ class _SavedRepositories extends StateNotifier<Set<String>> {
   }
 }
 
-final previousRepositoriesProvider = Provider<Iterable<String>>((ref) {
+final previousRepositoriesProvider =
+    Provider.autoDispose<Iterable<String>>((ref) {
   return ref.watch(_savedRepositoriesProvider.state);
+});
+
+final _savedBaseUrlProvider =
+    StateNotifierProvider.autoDispose<_SavedBaseUrl>((ref) {
+  final dir = ref.watch(currentRepoDirectoryProvider).state;
+  if (!dir.isGitRepo) return _SavedBaseUrl(ref.read, '');
+  return _SavedBaseUrl(ref.read, dir.directory);
+});
+
+class _SavedBaseUrl extends StateNotifier<String> {
+  final Reader read;
+  final String _key;
+
+  String get key => 'baseUrl:$_key';
+
+  _SavedBaseUrl(this.read, this._key) : super('') {
+    loadFromPrefs();
+  }
+
+  Future loadFromPrefs() async {
+    state = await read(_sharedPreferencesClient).getString(key);
+  }
+
+  void updateBaseUrl(String path) {
+    state = path;
+    read(_sharedPreferencesClient).saveString(key, path);
+  }
+}
+
+final baseUrlProvider = Provider.autoDispose<String>((ref) {
+  return ref.watch(_savedBaseUrlProvider.state);
 });
 
 extension on List<Change> {
